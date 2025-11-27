@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -10,7 +12,7 @@ from pydantic import BaseModel
 from app.core.logging_config import configure_logging
 from app.core.settings import get_settings
 from app.mermaid.diagram import generate_diagram
-from app.rag.file_scanner import scan_and_build_delta
+from app.rag.file_scanner import scan_and_build_delta, _load_text_from_file
 from app.rag.vectorstore import upsert_documents, similarity_search
 from app.rag.graph import build_graph, RAGState
 
@@ -56,6 +58,14 @@ class SearchResponse(BaseModel):
     query: str
     results: List[SearchResult]
     answer: Optional[str] = None
+
+
+class DocumentContent(BaseModel):
+    file_name: str
+    file_path: str
+    content: str
+    created_at: Optional[str] = None
+    modified_at: Optional[str] = None
 
 
 @app.on_event("startup")
@@ -132,7 +142,50 @@ async def search(
         if isinstance(final_state, dict):
             answer = final_state.get("answer")
         else:
-            # Fallback if we ever change RAGState to a dataclass or similar
             answer = getattr(final_state, "answer", None)
 
     return SearchResponse(query=query, results=results, answer=answer)
+
+
+@app.get("/rag/document", response_model=DocumentContent)
+async def get_document(file_path: str, user_id: str | None = None) -> DocumentContent:
+    """
+    Return the full content of a document given its file_path metadata.
+
+    This reads directly from the filesystem using the same loaders as the
+    embedding pipeline (including PDF support). It also validates that the
+    requested path is under INDEX_DIR to avoid path traversal.
+    """
+    settings = get_settings()
+    root = Path(settings.index_dir).resolve()
+    requested = Path(file_path).resolve()
+
+    # Security: ensure the requested path lives under index_dir
+    if not str(requested).startswith(str(root)):
+        logger.warning(
+            "Rejected document request outside index_dir. requested=%s, root=%s",
+            requested,
+            root,
+        )
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+
+    if not requested.exists():
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    try:
+        content = _load_text_from_file(requested)
+    except Exception as e:
+        logger.exception("Failed to load document content for %s", requested)
+        raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
+
+    stat = requested.stat()
+    created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
+    modified_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+    return DocumentContent(
+        file_name=requested.name,
+        file_path=str(requested),
+        content=content,
+        created_at=created_at,
+        modified_at=modified_at,
+    )

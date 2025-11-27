@@ -1,219 +1,628 @@
-const { useState } = React;
+// frontend/static/app.js
 
-function Sidebar({ current, onSelect }) {
-  const menuClasses = (id) =>
-    "block w-full text-left px-4 py-2 rounded-xl mb-2 " +
-    (current === id
-      ? "bg-indigo-500 text-white"
-      : "bg-slate-800 text-slate-200 hover:bg-slate-700");
+(function () {
+  const { useState } = React;
 
-  return (
-    <div className="w-64 p-4 border-r border-slate-800 h-screen">
-      <h1 className="text-2xl font-bold mb-6">BIG Console</h1>
-      <div className="mb-4">
-        <div className="text-xs uppercase text-slate-400 mb-2">Ideas</div>
-        <button className={menuClasses("ideas")} onClick={() => onSelect("ideas")}>
-          Ideas
-        </button>
-      </div>
-      <div>
-        <div className="text-xs uppercase text-slate-400 mb-2">RAG</div>
-        <button className={menuClasses("rag-embed")} onClick={() => onSelect("rag-embed")}>
-          Perform embeddings
-        </button>
-        <button className={menuClasses("rag-search")} onClick={() => onSelect("rag-search")}>
-          Search
-        </button>
-      </div>
-    </div>
-  );
-}
+  const RAG_API_BASE = window.RAG_API_BASE || "http://localhost:8001";
 
-function IdeasPage() {
-  const [selected, setSelected] = useState("business");
+  function App() {
+    const [section, setSection] = useState("ideas"); // "ideas" | "rag"
+    const [ragTab, setRagTab] = useState("embed"); // "embed" | "search"
 
-  const tabClasses = (id) =>
-    "px-4 py-2 rounded-full text-sm mr-2 mb-2 " +
-    (selected === id ? "bg-indigo-500 text-white" : "bg-slate-800 text-slate-200 hover:bg-slate-700");
+    const [embedStatus, setEmbedStatus] = useState(null);
+    const [embedLoading, setEmbedLoading] = useState(false);
+    const [embedError, setEmbedError] = useState(null);
 
-  return (
-    <div className="p-6">
-      <h2 className="text-xl font-semibold mb-4">Ideas</h2>
-      <div className="mb-4">
-        <button className={tabClasses("business")} onClick={() => setSelected("business")}>
-          Business Ideas
-        </button>
-        <button className={tabClasses("product")} onClick={() => setSelected("product")}>
-          Product Ideas
-        </button>
-        <button className={tabClasses("other")} onClick={() => setSelected("other")}>
-          Other Ideas
-        </button>
-      </div>
-      <div className="bg-slate-800 rounded-2xl p-4 border border-slate-700">
-        <p className="text-slate-300">
-          This panel will connect to your existing BIG idea generation flows.
-          For now, it&apos;s a placeholder separating Business / Product / Other ideas.
-        </p>
-      </div>
-    </div>
-  );
-}
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchResults, setSearchResults] = useState([]);
+    const [answer, setAnswer] = useState("");
+    const [searchLoading, setSearchLoading] = useState(false);
+    const [searchError, setSearchError] = useState(null);
 
-function EmbeddingsPage() {
-  const [status, setStatus] = useState(null);
-  const [loading, setLoading] = useState(false);
+    const [selectedDoc, setSelectedDoc] = useState(null);
+    const [docLoading, setDocLoading] = useState(false);
+    const [docError, setDocError] = useState(null);
 
-  const runEmbedding = async () => {
-    setLoading(true);
-    setStatus(null);
-    try {
-      const res = await fetch(window.RAG_API_BASE + "/rag/embed", {
-        method: "POST",
-      });
-      if (!res.ok) {
-        throw new Error("Embed request failed");
+    async function runEmbedding() {
+      setEmbedLoading(true);
+      setEmbedError(null);
+      setEmbedStatus(null);
+      try {
+        const res = await fetch(RAG_API_BASE + "/rag/embed", {
+          method: "POST",
+        });
+        if (!res.ok) {
+          throw new Error("Embedding request failed with status " + res.status);
+        }
+        const data = await res.json();
+        setEmbedStatus(data);
+      } catch (err) {
+        console.error(err);
+        setEmbedError(err.message || "Failed to run embeddings");
+      } finally {
+        setEmbedLoading(false);
       }
-      const data = await res.json();
-      setStatus(data);
-    } catch (err) {
-      console.error(err);
-      setStatus({ error: err.message });
-    } finally {
-      setLoading(false);
     }
-  };
 
-  return (
-    <div className="p-6">
-      <h2 className="text-xl font-semibold mb-4">Perform embeddings</h2>
-      <p className="text-slate-300 mb-4">
-        This will scan the configured runs folder, detect new/changed/deleted files,
-        and update the vector database. Only deltas are embedded.
-      </p>
-      <button
-        onClick={runEmbedding}
-        disabled={loading}
-        className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50"
-      >
-        {loading ? "Running..." : "Run embed delta"}
-      </button>
-
-      {status && (
-        <div className="mt-4 bg-slate-800 rounded-2xl p-4 border border-slate-700 text-sm">
-          {status.error ? (
-            <p className="text-red-400">Error: {status.error}</p>
-          ) : (
-            <ul className="space-y-1">
-              <li>Indexed documents: {status.indexed_documents}</li>
-              <li>New files: {status.new_files}</li>
-              <li>Updated files: {status.updated_files}</li>
-              <li>Deleted files: {status.deleted_files}</li>
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SearchPage() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [answer, setAnswer] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const runSearch = async (e) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-    setLoading(true);
-    setResults([]);
-    setAnswer(null);
-    try {
-      const params = new URLSearchParams({ q: query, with_answer: "true" });
-      const res = await fetch(window.RAG_API_BASE + "/rag/search?" + params.toString());
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || "Search failed");
+    async function runSearch() {
+      const q = (searchQuery || "").trim();
+      if (!q) {
+        setSearchError("Please enter a query.");
+        return;
       }
-      const data = await res.json();
-      setResults(data.results || []);
-      setAnswer(data.answer || null);
-    } catch (err) {
-      console.error(err);
-      setResults([]);
-      setAnswer("Error: " + err.message);
-    } finally {
-      setLoading(false);
+
+      setSearchLoading(true);
+      setSearchError(null);
+      setAnswer("");
+      setSearchResults([]);
+      setSelectedDoc(null);
+      setDocError(null);
+
+      try {
+        const url =
+          RAG_API_BASE +
+          "/rag/search?q=" +
+          encodeURIComponent(q) +
+          "&with_answer=true";
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error("Search request failed with status " + res.status);
+        }
+        const data = await res.json();
+        setAnswer(data.answer || "");
+        setSearchResults(data.results || []);
+      } catch (err) {
+        console.error(err);
+        setSearchError(err.message || "Failed to run search");
+      } finally {
+        setSearchLoading(false);
+      }
     }
-  };
 
-  return (
-    <div className="p-6 flex flex-col h-full">
-      <h2 className="text-xl font-semibold mb-4">RAG Search</h2>
-      <form onSubmit={runSearch} className="mb-4 flex gap-2">
-        <input
-          className="flex-1 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-100"
-          placeholder="Ask anything about your BIG runs..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <button
-          type="submit"
-          className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50"
-          disabled={loading}
-        >
-          {loading ? "Searching..." : "Search"}
-        </button>
-      </form>
+    async function openDocument(filePath) {
+      if (!filePath) return;
+      setDocLoading(true);
+      setDocError(null);
+      setSelectedDoc(null);
 
-      {answer && (
-        <div className="mb-4 bg-slate-800 border border-slate-700 rounded-2xl p-4">
-          <h3 className="font-semibold mb-2">Answer</h3>
-          <p className="text-slate-200 whitespace-pre-wrap text-sm">{answer}</p>
-        </div>
-      )}
+      try {
+        const url =
+          RAG_API_BASE +
+          "/rag/document?file_path=" +
+          encodeURIComponent(filePath);
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error("Document request failed with status " + res.status);
+        }
+        const data = await res.json();
+        setSelectedDoc(data);
+      } catch (err) {
+        console.error(err);
+        setDocError(err.message || "Failed to load document");
+      } finally {
+        setDocLoading(false);
+      }
+    }
 
-      <div className="flex-1 overflow-auto bg-slate-900 border border-slate-800 rounded-2xl p-4">
-        <h3 className="font-semibold mb-2">Documents</h3>
-        {results.length === 0 && !loading && (
-          <p className="text-slate-500 text-sm">No results yet. Try a query.</p>
-        )}
-        <div className="space-y-3">
-          {results.map((r, idx) => (
-            <div
-              key={idx}
-              className="bg-slate-800 rounded-xl p-3 border border-slate-700 text-sm"
-            >
-              <div className="flex justify-between items-center mb-1">
-                <div className="font-semibold">{r.file_name}</div>
-                <div className="text-xs text-slate-400">{r.modified_at || r.created_at}</div>
-              </div>
-              <div className="text-xs text-slate-500 mb-1">{r.file_path}</div>
-              <p className="text-slate-200">{r.snippet}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+    function renderIdeas() {
+      return React.createElement(
+        "div",
+        { className: "main-content" },
+        React.createElement("h2", { className: "section-title" }, "Ideas"),
+        React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement("h3", null, "Choose idea type"),
+          React.createElement(
+            "ul",
+            { className: "list" },
+            React.createElement("li", null, "Business Ideas"),
+            React.createElement("li", null, "Product Ideas"),
+            React.createElement("li", null, "Other Ideas")
+          )
+        )
+      );
+    }
 
-function App() {
-  const [current, setCurrent] = useState("ideas");
+    function renderRagEmbed() {
+      return React.createElement(
+        "div",
+        { className: "main-content" },
+        React.createElement(
+          "h2",
+          { className: "section-title" },
+          "RAG – Perform Embeddings"
+        ),
+        React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement(
+            "p",
+            null,
+            "Run a delta embed over your BIG runs folder. Only new/updated files will be embedded; deleted files will be removed."
+          ),
+          React.createElement(
+            "button",
+            {
+              className: "primary-btn",
+              onClick: runEmbedding,
+              disabled: embedLoading,
+            },
+            embedLoading ? "Running..." : "Run embed delta"
+          ),
+          embedError &&
+            React.createElement("p", { className: "error-text" }, embedError),
+          embedStatus &&
+            React.createElement(
+              "div",
+              { className: "status-box" },
+              React.createElement(
+                "p",
+                null,
+                "Indexed documents: ",
+                embedStatus.indexed_documents
+              ),
+              React.createElement(
+                "p",
+                null,
+                "New files: ",
+                embedStatus.new_files
+              ),
+              React.createElement(
+                "p",
+                null,
+                "Updated files: ",
+                embedStatus.updated_files
+              ),
+              React.createElement(
+                "p",
+                null,
+                "Deleted files: ",
+                embedStatus.deleted_files
+              )
+            )
+        )
+      );
+    }
 
-  let content = null;
-  if (current === "ideas") content = <IdeasPage />;
-  if (current === "rag-embed") content = <EmbeddingsPage />;
-  if (current === "rag-search") content = <SearchPage />;
+    function renderRagSearch() {
+      return React.createElement(
+        "div",
+        { className: "main-content" },
+        React.createElement(
+          "h2",
+          { className: "section-title" },
+          "RAG – Search"
+        ),
+        React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement(
+            "div",
+            { className: "search-row" },
+            React.createElement("input", {
+              className: "text-input",
+              type: "text",
+              placeholder: "Ask about your BIG runs…",
+              value: searchQuery,
+              onChange: function (e) {
+                setSearchQuery(e.target.value);
+              },
+              onKeyDown: function (e) {
+                if (e.key === "Enter") {
+                  runSearch();
+                }
+              },
+            }),
+            React.createElement(
+              "button",
+              {
+                className: "primary-btn",
+                onClick: runSearch,
+                disabled: searchLoading,
+              },
+              searchLoading ? "Searching..." : "Search"
+            )
+          ),
+          searchError &&
+            React.createElement("p", { className: "error-text" }, searchError)
+        ),
+        React.createElement(
+          "div",
+          { className: "split-layout" },
+          // Answer panel
+          React.createElement(
+            "div",
+            { className: "card flex-1" },
+            React.createElement("h3", null, "Answer"),
+            searchLoading
+              ? React.createElement("p", null, "Generating answer...")
+              : answer
+              ? React.createElement("p", null, answer)
+              : React.createElement(
+                  "p",
+                  { className: "muted" },
+                  "No answer yet. Run a search to see an answer here."
+                )
+          ),
+          // Documents panel
+          React.createElement(
+            "div",
+            { className: "card flex-1" },
+            React.createElement("h3", null, "Documents"),
+            searchResults.length === 0
+              ? React.createElement(
+                  "p",
+                  { className: "muted" },
+                  "No documents matched yet."
+                )
+              : React.createElement(
+                  "ul",
+                  { className: "doc-list" },
+                  searchResults.map(function (r, idx) {
+                    return React.createElement(
+                      "li",
+                      { key: idx, className: "doc-list-item" },
+                      React.createElement(
+                        "button",
+                        {
+                          className: "doc-link",
+                          onClick: function () {
+                            openDocument(r.file_path);
+                          },
+                          title: r.file_path,
+                        },
+                        r.file_name || "(no name)"
+                      ),
+                      React.createElement(
+                        "div",
+                        { className: "doc-meta" },
+                        r.created_at ? "Created: " + r.created_at + " " : "",
+                        r.modified_at ? " • Modified: " + r.modified_at : ""
+                      ),
+                      React.createElement(
+                        "div",
+                        { className: "doc-snippet" },
+                        r.snippet
+                      )
+                    );
+                  })
+                )
+          )
+        ),
+        // Document Viewer
+        React.createElement(
+          "div",
+          { className: "card doc-viewer" },
+          React.createElement("h3", null, "Document Viewer"),
+          docLoading && React.createElement("p", null, "Loading document..."),
+          docError &&
+            React.createElement("p", { className: "error-text" }, docError),
+          !docLoading &&
+            !docError &&
+            !selectedDoc &&
+            React.createElement(
+              "p",
+              { className: "muted" },
+              "Click on a document name above to view its full content here."
+            ),
+          selectedDoc &&
+            !docLoading &&
+            React.createElement(
+              React.Fragment,
+              null,
+              React.createElement(
+                "p",
+                { className: "doc-viewer-meta" },
+                React.createElement("strong", null, selectedDoc.file_name),
+                React.createElement("br", null),
+                React.createElement(
+                  "span",
+                  { className: "small-path" },
+                  selectedDoc.file_path
+                ),
+                selectedDoc.created_at
+                  ? React.createElement(
+                      "span",
+                      null,
+                      React.createElement("br", null),
+                      "Created: ",
+                      selectedDoc.created_at
+                    )
+                  : null,
+                selectedDoc.modified_at
+                  ? React.createElement(
+                      "span",
+                      null,
+                      React.createElement("br", null),
+                      "Modified: ",
+                      selectedDoc.modified_at
+                    )
+                  : null
+              ),
+              React.createElement(
+                "pre",
+                { className: "doc-viewer-content" },
+                selectedDoc.content
+              )
+            )
+        )
+      );
+    }
 
-  return (
-    <div className="flex">
-      <Sidebar current={current} onSelect={setCurrent} />
-      <div className="flex-1">{content}</div>
-    </div>
-  );
-}
+    function renderRag() {
+      return React.createElement(
+        "div",
+        { className: "main-wrapper" },
+        React.createElement(
+          "div",
+          { className: "tabs-row" },
+          React.createElement(
+            "button",
+            {
+              className:
+                "tab-btn " + (ragTab === "embed" ? "tab-btn-active" : ""),
+              onClick: function () {
+                setRagTab("embed");
+              },
+            },
+            "Perform embeddings"
+          ),
+          React.createElement(
+            "button",
+            {
+              className:
+                "tab-btn " + (ragTab === "search" ? "tab-btn-active" : ""),
+              onClick: function () {
+                setRagTab("search");
+              },
+            },
+            "Search"
+          )
+        ),
+        ragTab === "embed" ? renderRagEmbed() : renderRagSearch()
+      );
+    }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+    return React.createElement(
+      "div",
+      { className: "app-shell" },
+      // Sidebar
+      React.createElement(
+        "aside",
+        { className: "sidebar" },
+        React.createElement("h1", { className: "logo" }, "BIG Console"),
+        React.createElement(
+          "nav",
+          { className: "nav" },
+          React.createElement(
+            "button",
+            {
+              className:
+                "nav-item " + (section === "ideas" ? "nav-item-active" : ""),
+              onClick: function () {
+                setSection("ideas");
+              },
+            },
+            "Ideas"
+          ),
+          React.createElement(
+            "button",
+            {
+              className:
+                "nav-item " + (section === "rag" ? "nav-item-active" : ""),
+              onClick: function () {
+                setSection("rag");
+              },
+            },
+            "RAG"
+          )
+        )
+      ),
+      // Main
+      React.createElement(
+        "main",
+        { className: "main" },
+        section === "ideas" ? renderIdeas() : renderRag()
+      )
+    );
+  }
+
+  // Very lightweight styles so it looks reasonable without Tailwind
+  const style = document.createElement("style");
+  style.innerHTML = `
+  .app-shell {
+    display: flex;
+    min-height: 100vh;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f172a;
+    color: #e5e7eb;
+  }
+  .sidebar {
+    width: 220px;
+    background: #020617;
+    border-right: 1px solid #1f2937;
+    padding: 1.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .logo {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #38bdf8;
+  }
+  .nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .nav-item {
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    cursor: pointer;
+  }
+  .nav-item:hover {
+    background: #111827;
+    color: #e5e7eb;
+  }
+  .nav-item-active {
+    background: #111827;
+    color: #e5e7eb;
+    border-left: 3px solid #38bdf8;
+  }
+  .main {
+    flex: 1;
+    padding: 1.5rem 2rem;
+    overflow: auto;
+  }
+  .main-content {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .section-title {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .card {
+    background: #020617;
+    border-radius: 0.75rem;
+    padding: 1rem 1.2rem;
+    border: 1px solid #1f2937;
+    margin-bottom: 1rem;
+  }
+  .primary-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: #0ea5e9;
+    color: white;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .primary-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .text-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid #374151;
+    background: #020617;
+    color: #e5e7eb;
+  }
+  .text-input:focus {
+    outline: none;
+    border-color: #0ea5e9;
+  }
+  .error-text {
+    color: #f87171;
+    margin-top: 0.5rem;
+  }
+  .status-box p {
+    margin: 0.1rem 0;
+  }
+  .muted {
+    color: #6b7280;
+  }
+  .tabs-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .tab-btn {
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid #1f2937;
+    background: #020617;
+    color: #9ca3af;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  .tab-btn-active {
+    background: #0f172a;
+    color: #e5e7eb;
+    border-color: #38bdf8;
+  }
+  .search-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .split-layout {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+  }
+  .flex-1 {
+    flex: 1;
+  }
+  .doc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0 0;
+    max-height: 260px;
+    overflow: auto;
+  }
+  .doc-list-item {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #111827;
+  }
+  .doc-link {
+    background: none;
+    border: none;
+    color: #38bdf8;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+  }
+  .doc-link:hover {
+    text-decoration: underline;
+  }
+  .doc-meta {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+  .doc-snippet {
+    font-size: 0.85rem;
+    color: #9ca3af;
+  }
+  .doc-viewer {
+    max-height: 360px;
+    overflow: auto;
+  }
+  .doc-viewer-meta {
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+  .small-path {
+    font-size: 0.75rem;
+    color: #6b7280;
+  }
+  .doc-viewer-content {
+    margin: 0;
+    padding: 0.75rem;
+    background: #020617;
+    border-radius: 0.5rem;
+    border: 1px solid #1f2937;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+  }
+  .list {
+    padding-left: 1.2rem;
+  }
+  `;
+  document.head.appendChild(style);
+
+  const rootEl = document.getElementById("root");
+  if (rootEl) {
+    const root = ReactDOM.createRoot(rootEl);
+    root.render(React.createElement(App));
+  }
+})();

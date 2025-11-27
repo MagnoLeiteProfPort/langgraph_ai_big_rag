@@ -8,6 +8,7 @@ from typing import Iterable, Tuple
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.document_loaders import PyPDFLoader
 
 from app.core.settings import get_settings
 from .vectorstore import get_vectorstore, delete_by_file_path
@@ -15,7 +16,7 @@ from .vectorstore import get_vectorstore, delete_by_file_path
 logger = logging.getLogger(__name__)
 
 # Adjust this set depending on what your BIG runs actually contain.
-# For now: simple text-based formats.
+# For now: text-based formats + PDFs.
 SUPPORTED_EXTS = {".mmd", ".md", ".pdf", ".csv", ".txt", ".markdown", ".json"}
 
 
@@ -71,6 +72,26 @@ def _load_existing_file_index() -> dict[str, str]:
 
     logger.info("Loaded %d file hashes from existing vectorstore", len(index))
     return index
+
+
+def _load_text_from_file(path: Path) -> str:
+    """
+    Load file content as text.
+
+    - PDFs: use PyPDFLoader and join all page texts.
+    - Everything else: read as UTF-8 text (best-effort).
+    """
+    suffix = path.suffix.lower()
+
+    if suffix == ".pdf":
+        logger.debug("Loading PDF with PyPDFLoader: %s", path)
+        loader = PyPDFLoader(str(path))
+        pages = loader.load()
+        return "\n\n".join(page.page_content for page in pages)
+
+    # Fallback for normal text-ish formats
+    logger.debug("Loading text file: %s", path)
+    return path.read_text(encoding="utf-8", errors="ignore")
 
 
 def scan_and_build_delta(user_id: str | None = None) -> Tuple[list[Document], int, int, int]:
@@ -133,8 +154,8 @@ def scan_and_build_delta(user_id: str | None = None) -> Tuple[list[Document], in
             # Remove old chunks for this file
             delete_by_file_path(file_path_str)
 
-        # Read as text; for binary formats you would need different loaders
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        # Load text based on file type
+        text = _load_text_from_file(path)
         base_meta = {
             "file_path": file_path_str,
             "file_name": path.name,

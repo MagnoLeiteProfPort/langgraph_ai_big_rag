@@ -383,6 +383,8 @@ Implemented in `app/main.py`:
        - Answer
        - Linked document snippets
 
+![alt text](search.png)
+
 6. **Inspect the architecture diagram**
 
    - Check `<EMBEDDING_DIR>/../diagrams/agent_architecture.mmd`
