@@ -1,0 +1,14 @@
+graph TD
+    A[User in React/Django UI] --> B[FastAPI /rag/search]
+    A --> C[FastAPI /rag/embed]
+    C --> D[File Scanner]
+    D --> E[LangChain Text Splitter]
+    E --> F[Vector DB - Chroma + SQLite]
+    B --> G[LangGraph Orchestrator]
+    G --> H[Retriever Node]
+    H --> F
+    F --> H
+    H --> I[Generator Node]
+    I --> J[LLM (Ollama/OpenAI/Anthropic)]
+    J --> G
+    G --> K[JSON Response to UI]

@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+langchain
+langchain-openai
+langchain-anthropic
+langchain-ollama
+langgraph
+chromadb
+tiktoken
+pydantic-settings
+langchain_text_splitters
+langchain_community
