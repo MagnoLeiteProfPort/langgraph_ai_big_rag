@@ -15,8 +15,7 @@ from .vectorstore import get_vectorstore, delete_by_file_path
 
 logger = logging.getLogger(__name__)
 
-# Adjust this set depending on what your BIG runs actually contain.
-# For now: text-based formats + PDFs.
+# Text-based formats + PDFs.
 SUPPORTED_EXTS = {".mmd", ".md", ".pdf", ".csv", ".txt", ".markdown", ".json"}
 
 

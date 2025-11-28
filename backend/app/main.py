@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -66,6 +66,12 @@ class DocumentContent(BaseModel):
     content: str
     created_at: Optional[str] = None
     modified_at: Optional[str] = None
+
+
+class DocumentUpdate(BaseModel):
+    file_path: str
+    content: str
+    user_id: Optional[str] = None
 
 
 @app.on_event("startup")
@@ -147,14 +153,72 @@ async def search(
     return SearchResponse(query=query, results=results, answer=answer)
 
 
+# ---------- Simple versioning helpers (local to this file) ----------
+
+def _parse_version(path: Path) -> Tuple[str, int]:
+    """
+    Parse filenames like:
+      base.ext
+      base__v1.ext
+      base__v2.ext
+    Returns (base, version_int).
+    """
+    stem = path.stem
+    if "__v" in stem:
+        base, vpart = stem.rsplit("__v", 1)
+        if vpart.isdigit():
+            return base, int(vpart)
+    return stem, 0
+
+
+def _resolve_latest_version(path: Path) -> Path:
+    """
+    Given a path (original or versioned), find the highest version sibling.
+    If no versions exist, return the original path.
+    """
+    base, _ = _parse_version(path)
+    suffix = path.suffix
+    parent = path.parent
+
+    best_version = -1
+    best_path: Path | None = None
+
+    try:
+        for p in parent.iterdir():
+            if not p.is_file() or p.suffix != suffix:
+                continue
+            b, v = _parse_version(p)
+            if b == base and v > best_version:
+                best_version = v
+                best_path = p
+    except FileNotFoundError:
+        # Parent folder might not exist
+        pass
+
+    return best_path or path
+
+
+def _next_version_path(path: Path) -> Path:
+    """
+    Given any path:
+      - Find the latest existing version among siblings
+      - Return a new path with version incremented.
+    """
+    latest = _resolve_latest_version(path)
+    base, v = _parse_version(latest)
+    next_v = v + 1
+    return latest.parent / f"{base}__v{next_v}{latest.suffix}"
+
+
+# -------------------------------------------------------------------
+
+
 @app.get("/rag/document", response_model=DocumentContent)
 async def get_document(file_path: str, user_id: str | None = None) -> DocumentContent:
     """
     Return the full content of a document given its file_path metadata.
 
-    This reads directly from the filesystem using the same loaders as the
-    embedding pipeline (including PDF support). It also validates that the
-    requested path is under INDEX_DIR to avoid path traversal.
+    Always resolves to the latest version of the file (base, base__v1, base__v2, ...).
     """
     settings = get_settings()
     root = Path(settings.index_dir).resolve()
@@ -169,23 +233,75 @@ async def get_document(file_path: str, user_id: str | None = None) -> DocumentCo
         )
         raise HTTPException(status_code=400, detail="Invalid file path.")
 
-    if not requested.exists():
+    latest = _resolve_latest_version(requested)
+
+    if not latest.exists():
         raise HTTPException(status_code=404, detail="Document not found.")
 
     try:
-        content = _load_text_from_file(requested)
+        content = _load_text_from_file(latest)
     except Exception as e:
-        logger.exception("Failed to load document content for %s", requested)
+        logger.exception("Failed to load document content for %s", latest)
         raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
 
-    stat = requested.stat()
+    stat = latest.stat()
     created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
     modified_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
 
     return DocumentContent(
-        file_name=requested.name,
-        file_path=str(requested),
+        file_name=latest.name,
+        file_path=str(latest),
         content=content,
+        created_at=created_at,
+        modified_at=modified_at,
+    )
+
+
+@app.post("/rag/document/save", response_model=DocumentContent)
+async def save_document(update: DocumentUpdate) -> DocumentContent:
+    """
+    Save an edited document as a new version.
+
+    - Given file_path = original or any version
+    - Find latest version among siblings
+    - Create next version file (base__vN.ext)
+    - Write new content there
+    - Return that version as DocumentContent
+
+    The RAG embeddings will pick it up on the next /rag/embed run via the delta mechanism.
+    """
+    settings = get_settings()
+    root = Path(settings.index_dir).resolve()
+    requested = Path(update.file_path).resolve()
+
+    # Security: ensure the requested path lives under index_dir
+    if not str(requested).startswith(str(root)):
+        logger.warning(
+            "Rejected document save outside index_dir. requested=%s, root=%s",
+            requested,
+            root,
+        )
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+
+    next_path = _next_version_path(requested)
+    next_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        next_path.write_text(update.content, encoding="utf-8")
+    except Exception as e:
+        logger.exception("Failed to write document version for %s", next_path)
+        raise HTTPException(status_code=500, detail=f"Failed to save document: {e}")
+
+    stat = next_path.stat()
+    created_at = datetime.fromtimestamp(stat.st_ctime).isoformat()
+    modified_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
+
+    logger.info("Saved new document version: %s", next_path)
+
+    return DocumentContent(
+        file_name=next_path.name,
+        file_path=str(next_path),
+        content=update.content,
         created_at=created_at,
         modified_at=modified_at,
     )

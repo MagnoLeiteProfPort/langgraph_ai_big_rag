@@ -1,5 +1,3 @@
-// frontend/static/app.js
-
 (function () {
   const { useState } = React;
 
@@ -22,6 +20,8 @@
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [docLoading, setDocLoading] = useState(false);
     const [docError, setDocError] = useState(null);
+
+    const [editContent, setEditContent] = useState("");
 
     async function runEmbedding() {
       setEmbedLoading(true);
@@ -57,6 +57,7 @@
       setSearchResults([]);
       setSelectedDoc(null);
       setDocError(null);
+      setEditContent("");
 
       try {
         const url =
@@ -84,6 +85,7 @@
       setDocLoading(true);
       setDocError(null);
       setSelectedDoc(null);
+      setEditContent("");
 
       try {
         const url =
@@ -96,9 +98,44 @@
         }
         const data = await res.json();
         setSelectedDoc(data);
+        setEditContent(data.content || "");
       } catch (err) {
         console.error(err);
         setDocError(err.message || "Failed to load document");
+      } finally {
+        setDocLoading(false);
+      }
+    }
+
+    async function saveDocument() {
+      if (!selectedDoc) return;
+      const content = editContent || "";
+
+      setDocLoading(true);
+      setDocError(null);
+
+      try {
+        const url = RAG_API_BASE + "/rag/document/save";
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            file_path: selectedDoc.file_path,
+            content: content,
+          }),
+        });
+        if (!res.ok) {
+          throw new Error("Save request failed with status " + res.status);
+        }
+        const data = await res.json();
+        // data is the new version DocumentContent
+        setSelectedDoc(data);
+        setEditContent(data.content || "");
+      } catch (err) {
+        console.error(err);
+        setDocError(err.message || "Failed to save document");
       } finally {
         setDocLoading(false);
       }
@@ -304,7 +341,7 @@
             React.createElement(
               "p",
               { className: "muted" },
-              "Click on a document name above to view its full content here."
+              "Click on a document name above to view and edit its content here."
             ),
           selectedDoc &&
             !docLoading &&
@@ -340,10 +377,36 @@
                     )
                   : null
               ),
+              React.createElement("textarea", {
+                className: "doc-edit-textarea",
+                value: editContent,
+                onChange: function (e) {
+                  setEditContent(e.target.value);
+                },
+              }),
               React.createElement(
-                "pre",
-                { className: "doc-viewer-content" },
-                selectedDoc.content
+                "div",
+                { className: "doc-edit-actions" },
+                React.createElement(
+                  "button",
+                  {
+                    className: "primary-btn",
+                    onClick: saveDocument,
+                    disabled: docLoading,
+                  },
+                  docLoading ? "Saving..." : "Save new version"
+                ),
+                React.createElement(
+                  "button",
+                  {
+                    className: "secondary-btn",
+                    onClick: function () {
+                      // Reset editor to current selectedDoc content
+                      setEditContent(selectedDoc.content || "");
+                    },
+                  },
+                  "Reset changes"
+                )
               )
             )
         )
@@ -428,7 +491,7 @@
     );
   }
 
-  // Very lightweight styles so it looks reasonable without Tailwind
+  // Styles
   const style = document.createElement("style");
   style.innerHTML = `
   .app-shell {
@@ -507,6 +570,18 @@
   .primary-btn:disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  .secondary-btn {
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid #374151;
+    background: #020617;
+    color: #e5e7eb;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .secondary-btn:hover {
+    background: #111827;
   }
   .text-input {
     flex: 1;
@@ -605,14 +680,27 @@
     font-size: 0.75rem;
     color: #6b7280;
   }
-  .doc-viewer-content {
-    margin: 0;
-    padding: 0.75rem;
-    background: #020617;
+  .doc-edit-textarea {
+    width: 100%;
+    min-height: 180px;
+    resize: vertical;
     border-radius: 0.5rem;
-    border: 1px solid #1f2937;
+    border: 1px solid #374151;
+    background: #020617;
+    color: #e5e7eb;
+    padding: 0.5rem 0.75rem;
+    font-family: monospace;
     font-size: 0.85rem;
-    white-space: pre-wrap;
+    margin-top: 0.5rem;
+  }
+  .doc-edit-textarea:focus {
+    outline: none;
+    border-color: #0ea5e9;
+  }
+  .doc-edit-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
   }
   .list {
     padding-left: 1.2rem;
