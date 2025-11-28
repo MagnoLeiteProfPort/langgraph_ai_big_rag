@@ -174,6 +174,20 @@
       }
     }
 
+    function exportDocument(format) {
+      if (!selectedDoc) return;
+      const fp = selectedDoc.file_path;
+      const url =
+        RAG_API_BASE +
+        "/rag/document/export?file_path=" +
+        encodeURIComponent(fp) +
+        "&format=" +
+        encodeURIComponent(format);
+
+      // Just open in a new tab; browser will download it
+      window.open(url, "_blank");
+    }
+
     function renderIdeas() {
       return React.createElement(
         "div",
@@ -398,33 +412,77 @@
               React.Fragment,
               null,
               React.createElement(
-                "p",
-                { className: "doc-viewer-meta" },
-                React.createElement("strong", null, selectedDoc.file_name),
-                React.createElement("br", null),
+                "div",
+                { className: "doc-viewer-header-row" },
                 React.createElement(
-                  "span",
-                  { className: "small-path" },
-                  selectedDoc.file_path
+                  "p",
+                  { className: "doc-viewer-meta" },
+                  React.createElement("strong", null, selectedDoc.file_name),
+                  React.createElement("br", null),
+                  React.createElement(
+                    "span",
+                    { className: "small-path" },
+                    selectedDoc.file_path
+                  ),
+                  selectedDoc.created_at
+                    ? React.createElement(
+                        "span",
+                        null,
+                        React.createElement("br", null),
+                        "Created: ",
+                        selectedDoc.created_at
+                      )
+                    : null,
+                  selectedDoc.modified_at
+                    ? React.createElement(
+                        "span",
+                        null,
+                        React.createElement("br", null),
+                        "Modified: ",
+                        selectedDoc.modified_at
+                      )
+                    : null
                 ),
-                selectedDoc.created_at
-                  ? React.createElement(
-                      "span",
-                      null,
-                      React.createElement("br", null),
-                      "Created: ",
-                      selectedDoc.created_at
-                    )
-                  : null,
-                selectedDoc.modified_at
-                  ? React.createElement(
-                      "span",
-                      null,
-                      React.createElement("br", null),
-                      "Modified: ",
-                      selectedDoc.modified_at
-                    )
-                  : null
+                // Export toolbar
+                React.createElement(
+                  "div",
+                  { className: "export-toolbar" },
+                  React.createElement(
+                    "span",
+                    { className: "export-label" },
+                    "Export:"
+                  ),
+                  React.createElement(
+                    "button",
+                    {
+                      className: "export-btn",
+                      onClick: function () {
+                        exportDocument("txt");
+                      },
+                    },
+                    "TXT"
+                  ),
+                  React.createElement(
+                    "button",
+                    {
+                      className: "export-btn",
+                      onClick: function () {
+                        exportDocument("markdown");
+                      },
+                    },
+                    "MD"
+                  ),
+                  React.createElement(
+                    "button",
+                    {
+                      className: "export-btn",
+                      onClick: function () {
+                        exportDocument("pdf");
+                      },
+                    },
+                    "PDF"
+                  )
+                )
               ),
               React.createElement(
                 "p",
@@ -759,6 +817,12 @@
     max-height: 360px;
     overflow: auto;
   }
+  .doc-viewer-header-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+  }
   .doc-viewer-meta {
     font-size: 0.85rem;
     margin-bottom: 0.3rem;
@@ -791,6 +855,35 @@
   }
   .list {
     padding-left: 1.2rem;
+  }
+
+  /* Export toolbar */
+  .export-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 999px;
+    background: #020617;
+    border: 1px solid #1f2937;
+  }
+  .export-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ca3af;
+  }
+  .export-btn {
+    border: none;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #e5e7eb;
+    cursor: pointer;
+    font-size: 0.75rem;
+  }
+  .export-btn:hover {
+    background: #1d4ed8;
   }
 
   /* Loading dots animation */

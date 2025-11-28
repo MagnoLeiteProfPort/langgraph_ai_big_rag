@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.core.logging_config import configure_logging
@@ -15,6 +17,11 @@ from app.mermaid.diagram import generate_diagram
 from app.rag.file_scanner import scan_and_build_delta, _load_text_from_file
 from app.rag.vectorstore import upsert_documents, similarity_search
 from app.rag.graph import build_graph, RAGState
+
+# PDF generation (reportlab)
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -305,3 +312,149 @@ async def save_document(update: DocumentUpdate) -> DocumentContent:
         created_at=created_at,
         modified_at=modified_at,
     )
+
+
+# ---------- Export endpoint ----------------------------------------
+
+
+@app.get("/rag/document/export")
+async def export_document(file_path: str, format: str = Query("txt")) -> Response:
+    """
+    Export the latest version of a document as TXT, Markdown or PDF.
+
+    Query params:
+      - file_path: original metadata path (same as in search results)
+      - format: "txt" | "markdown" | "md" | "pdf"
+    """
+    settings = get_settings()
+    root = Path(settings.index_dir).resolve()
+    requested = Path(file_path).resolve()
+
+    # Security: ensure the requested path lives under index_dir
+    if not str(requested).startswith(str(root)):
+        logger.warning(
+            "Rejected document export outside index_dir. requested=%s, root=%s",
+            requested,
+            root,
+        )
+        raise HTTPException(status_code=400, detail="Invalid file path.")
+
+    latest = _resolve_latest_version(requested)
+
+    if not latest.exists():
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    try:
+        raw_content = _load_text_from_file(latest)
+    except Exception as e:
+        logger.exception("Failed to load document content for export %s", latest)
+        raise HTTPException(status_code=500, detail=f"Failed to load document: {e}")
+
+    stat = latest.stat()
+    created_at = datetime.fromtimestamp(stat.st_ctime).isoformat(timespec="seconds")
+    modified_at = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
+
+    # Normalised filename for download
+    base_name = latest.stem.replace(" ", "_")
+    now_str = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    fmt = (format or "txt").lower()
+    if fmt == "md":
+        fmt = "markdown"
+
+    header_md = f"# {latest.name}\n\n" \
+                f"_Exported from BIG RAG – {now_str}_\n\n" \
+                f"- **Original path**: `{latest}`\n" \
+                f"- **Created at**: `{created_at}`\n" \
+                f"- **Modified at**: `{modified_at}`\n\n" \
+                f"---\n\n"
+
+    header_txt = (
+        f"{latest.name}\n"
+        f"Exported from BIG RAG – {now_str}\n"
+        f"Original path: {latest}\n"
+        f"Created at: {created_at}\n"
+        f"Modified at: {modified_at}\n"
+        f"{'-' * 60}\n\n"
+    )
+
+    if fmt == "txt":
+        body = header_txt + raw_content
+        return Response(
+            body,
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_name}.txt"'
+            },
+        )
+
+    if fmt == "markdown":
+        body = header_md + raw_content
+        return Response(
+            body,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_name}.md"'
+            },
+        )
+
+    if fmt == "pdf":
+        # Generate a simple, clean PDF page with title, metadata, and body text
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+
+        margin_x = 2 * cm
+        margin_top = height - 2 * cm
+        text_width = width - 2 * margin_x
+
+        # Title
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(margin_x, margin_top, latest.name)
+
+        # Subheader
+        c.setFont("Helvetica-Oblique", 9)
+        c.drawString(margin_x, margin_top - 14, f"Exported from BIG RAG – {now_str}")
+        c.setFont("Helvetica", 8)
+        c.drawString(margin_x, margin_top - 28, f"Original path: {latest}")
+        c.drawString(margin_x, margin_top - 40, f"Created at: {created_at}")
+        c.drawString(margin_x, margin_top - 52, f"Modified at: {modified_at}")
+
+        # Body text
+        text_obj = c.beginText()
+        text_obj.setTextOrigin(margin_x, margin_top - 80)
+        text_obj.setFont("Helvetica", 10)
+        line_height = 12
+
+        # Simple wrapping by approximate char count based on page width
+        # (for better typography you'd compute stringWidth, but this is good enough)
+        approx_chars_per_line = int(text_width / 5.5)  # ~5.5pt per char at size 10
+
+        def add_paragraph(text: str) -> None:
+            for paragraph_line in text.splitlines():
+                if not paragraph_line:
+                    text_obj.textLine("")
+                    continue
+                line = paragraph_line
+                while len(line) > approx_chars_per_line:
+                    part = line[:approx_chars_per_line]
+                    text_obj.textLine(part)
+                    line = line[approx_chars_per_line:]
+                text_obj.textLine(line)
+
+        add_paragraph(raw_content)
+
+        c.drawText(text_obj)
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{base_name}.pdf"'
+            },
+        )
+
+    raise HTTPException(status_code=400, detail="Unsupported export format. Use txt, markdown, or pdf.")

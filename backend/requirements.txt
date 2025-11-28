@@ -12,3 +12,4 @@ tiktoken
 pydantic-settings
 langchain_text_splitters
 langchain_community
+reportlab
