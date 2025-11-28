@@ -3,6 +3,19 @@
 
   const RAG_API_BASE = window.RAG_API_BASE || "http://localhost:8001";
 
+  // Small animated loading indicator with three dots
+  function LoadingDots(props) {
+    const label = props.label || "";
+    return React.createElement(
+      "span",
+      { className: "loading-dots" },
+      label,
+      React.createElement("span", { className: "dot dot-1" }, "."),
+      React.createElement("span", { className: "dot dot-2" }, "."),
+      React.createElement("span", { className: "dot dot-3" }, ".")
+    );
+  }
+
   function App() {
     const [section, setSection] = useState("ideas"); // "ideas" | "rag"
     const [ragTab, setRagTab] = useState("embed"); // "embed" | "search"
@@ -23,6 +36,15 @@
 
     const [editContent, setEditContent] = useState("");
 
+    const [toast, setToast] = useState(null); // { type: 'success' | 'error', message: string }
+
+    function showToast(message, type) {
+      setToast({ message: message, type: type || "success" });
+      setTimeout(function () {
+        setToast(null);
+      }, 3000);
+    }
+
     async function runEmbedding() {
       setEmbedLoading(true);
       setEmbedError(null);
@@ -38,7 +60,9 @@
         setEmbedStatus(data);
       } catch (err) {
         console.error(err);
-        setEmbedError(err.message || "Failed to run embeddings");
+        const msg = err.message || "Failed to run embeddings";
+        setEmbedError(msg);
+        showToast(msg, "error");
       } finally {
         setEmbedLoading(false);
       }
@@ -47,7 +71,9 @@
     async function runSearch() {
       const q = (searchQuery || "").trim();
       if (!q) {
-        setSearchError("Please enter a query.");
+        const msg = "Please enter a query.";
+        setSearchError(msg);
+        showToast(msg, "error");
         return;
       }
 
@@ -74,7 +100,9 @@
         setSearchResults(data.results || []);
       } catch (err) {
         console.error(err);
-        setSearchError(err.message || "Failed to run search");
+        const msg = err.message || "Failed to run search";
+        setSearchError(msg);
+        showToast(msg, "error");
       } finally {
         setSearchLoading(false);
       }
@@ -101,7 +129,9 @@
         setEditContent(data.content || "");
       } catch (err) {
         console.error(err);
-        setDocError(err.message || "Failed to load document");
+        const msg = err.message || "Failed to load document";
+        setDocError(msg);
+        showToast(msg, "error");
       } finally {
         setDocLoading(false);
       }
@@ -133,9 +163,12 @@
         // data is the new version DocumentContent
         setSelectedDoc(data);
         setEditContent(data.content || "");
+        showToast("New version saved successfully.", "success");
       } catch (err) {
         console.error(err);
-        setDocError(err.message || "Failed to save document");
+        const msg = err.message || "Failed to save document";
+        setDocError(msg);
+        showToast(msg, "error");
       } finally {
         setDocLoading(false);
       }
@@ -187,6 +220,12 @@
             },
             embedLoading ? "Running..." : "Run embed delta"
           ),
+          embedLoading &&
+            React.createElement(
+              "p",
+              { className: "muted small-loading" },
+              React.createElement(LoadingDots, { label: "Running embeddings" })
+            ),
           embedError &&
             React.createElement("p", { className: "error-text" }, embedError),
           embedStatus &&
@@ -223,6 +262,10 @@
     }
 
     function renderRagSearch() {
+      // For edit button visibility: compare editor with latest version content
+      const isDirty =
+        selectedDoc && editContent !== (selectedDoc.content || "");
+
       return React.createElement(
         "div",
         { className: "main-content" },
@@ -261,6 +304,12 @@
               searchLoading ? "Searching..." : "Search"
             )
           ),
+          searchLoading &&
+            React.createElement(
+              "p",
+              { className: "muted small-loading" },
+              React.createElement(LoadingDots, { label: "Searching" })
+            ),
           searchError &&
             React.createElement("p", { className: "error-text" }, searchError)
         ),
@@ -341,7 +390,7 @@
             React.createElement(
               "p",
               { className: "muted" },
-              "Click on a document name above to view and edit its content here."
+              "Click on a document name above to view and edit its content here. Every save creates a new version."
             ),
           selectedDoc &&
             !docLoading &&
@@ -377,6 +426,11 @@
                     )
                   : null
               ),
+              React.createElement(
+                "p",
+                { className: "muted info-edit" },
+                "You can edit the document below. When you save, a new version file is created and older versions are kept."
+              ),
               React.createElement("textarea", {
                 className: "doc-edit-textarea",
                 value: editContent,
@@ -387,15 +441,16 @@
               React.createElement(
                 "div",
                 { className: "doc-edit-actions" },
-                React.createElement(
-                  "button",
-                  {
-                    className: "primary-btn",
-                    onClick: saveDocument,
-                    disabled: docLoading,
-                  },
-                  docLoading ? "Saving..." : "Save new version"
-                ),
+                isDirty &&
+                  React.createElement(
+                    "button",
+                    {
+                      className: "primary-btn",
+                      onClick: saveDocument,
+                      disabled: docLoading,
+                    },
+                    docLoading ? "Saving..." : "Save new version"
+                  ),
                 React.createElement(
                   "button",
                   {
@@ -404,6 +459,7 @@
                       // Reset editor to current selectedDoc content
                       setEditContent(selectedDoc.content || "");
                     },
+                    disabled: docLoading || !isDirty,
                   },
                   "Reset changes"
                 )
@@ -448,46 +504,64 @@
     }
 
     return React.createElement(
-      "div",
-      { className: "app-shell" },
-      // Sidebar
+      React.Fragment,
+      null,
       React.createElement(
-        "aside",
-        { className: "sidebar" },
-        React.createElement("h1", { className: "logo" }, "BIG Console"),
+        "div",
+        { className: "app-shell" },
+        // Sidebar
         React.createElement(
-          "nav",
-          { className: "nav" },
+          "aside",
+          { className: "sidebar" },
+          React.createElement("h1", { className: "logo" }, "BIG Console"),
           React.createElement(
-            "button",
-            {
-              className:
-                "nav-item " + (section === "ideas" ? "nav-item-active" : ""),
-              onClick: function () {
-                setSection("ideas");
+            "nav",
+            { className: "nav" },
+            React.createElement(
+              "button",
+              {
+                className:
+                  "nav-item " + (section === "ideas" ? "nav-item-active" : ""),
+                onClick: function () {
+                  setSection("ideas");
+                },
               },
-            },
-            "Ideas"
-          ),
-          React.createElement(
-            "button",
-            {
-              className:
-                "nav-item " + (section === "rag" ? "nav-item-active" : ""),
-              onClick: function () {
-                setSection("rag");
+              "Ideas"
+            ),
+            React.createElement(
+              "button",
+              {
+                className:
+                  "nav-item " + (section === "rag" ? "nav-item-active" : ""),
+                onClick: function () {
+                  setSection("rag");
+                },
               },
-            },
-            "RAG"
+              "RAG"
+            )
           )
+        ),
+        // Main
+        React.createElement(
+          "main",
+          { className: "main" },
+          section === "ideas" ? renderIdeas() : renderRag()
         )
       ),
-      // Main
-      React.createElement(
-        "main",
-        { className: "main" },
-        section === "ideas" ? renderIdeas() : renderRag()
-      )
+      toast &&
+        React.createElement(
+          "div",
+          {
+            className:
+              "toast " +
+              (toast.type === "error" ? "toast-error" : "toast-success"),
+          },
+          React.createElement(
+            "div",
+            { className: "toast-message" },
+            toast.message
+          )
+        )
     );
   }
 
@@ -580,7 +654,11 @@
     cursor: pointer;
     font-size: 0.85rem;
   }
-  .secondary-btn:hover {
+  .secondary-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .secondary-btn:hover:not(:disabled) {
     background: #111827;
   }
   .text-input {
@@ -605,6 +683,11 @@
   .muted {
     color: #6b7280;
   }
+  .info-edit {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.8rem;
+  }
   .tabs-row {
     display: flex;
     gap: 0.5rem;
@@ -628,6 +711,10 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
+  }
+  .small-loading {
+    margin-top: 0.4rem;
+    font-size: 0.8rem;
   }
   .split-layout {
     display: flex;
@@ -674,7 +761,7 @@
   }
   .doc-viewer-meta {
     font-size: 0.85rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.3rem;
   }
   .small-path {
     font-size: 0.75rem;
@@ -704,6 +791,51 @@
   }
   .list {
     padding-left: 1.2rem;
+  }
+
+  /* Loading dots animation */
+  .loading-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.08rem;
+  }
+  .loading-dots .dot {
+    display: inline-block;
+    animation: blink 1.4s infinite both;
+  }
+  .loading-dots .dot-2 {
+    animation-delay: 0.2s;
+  }
+  .loading-dots .dot-3 {
+    animation-delay: 0.4s;
+  }
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0; }
+    40% { opacity: 1; }
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #166534;
+    background: #14532d;
+    color: #ecfdf5;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+    z-index: 9999;
+    max-width: 320px;
+    font-size: 0.85rem;
+  }
+  .toast-error {
+    border-color: #b91c1c;
+    background: #7f1d1d;
+    color: #fee2e2;
+  }
+  .toast-message {
+    margin: 0;
   }
   `;
   document.head.appendChild(style);
