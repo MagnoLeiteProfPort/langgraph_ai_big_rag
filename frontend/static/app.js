@@ -3,6 +3,33 @@
 
   const RAG_API_BASE = window.RAG_API_BASE || "http://localhost:8009";
 
+  // Templates for idea subject (guidance for the human prompt)
+  const IDEA_TEMPLATES = {
+    business:
+      "Describe the BUSINESS opportunity you want to explore.\n\n" +
+      "You can include, for example:\n" +
+      "- Who is the target customer?\n" +
+      "- Which problem or pain point do you want to solve?\n" +
+      "- Geography or market focus (e.g. Switzerland, EU, global).\n" +
+      "- Constraints: budget, team, timeline, tech stack.\n\n" +
+      "Write in natural language.",
+    product:
+      "Describe the PRODUCT idea you want to explore.\n\n" +
+      "You can include, for example:\n" +
+      "- User persona and their context.\n" +
+      "- Core problem / job-to-be-done.\n" +
+      "- Must-have features and platforms (web, mobile, API…).\n" +
+      "- Integration needs and constraints (time, budget, tech).\n\n" +
+      "Write in natural language.",
+    other:
+      "Describe ANY OTHER type of opportunity or idea you want to explore.\n\n" +
+      "You can include, for example:\n" +
+      "- Context and goal (research direction, strategy question, innovation area…).\n" +
+      "- Key constraints or hypotheses.\n" +
+      "- What you want the agents to prioritize (risk, speed, differentiation, etc.).\n\n" +
+      "Write in natural language.",
+  };
+
   // Small animated loading indicator with three dots
   function LoadingDots(props) {
     const label = props.label || "";
@@ -20,6 +47,16 @@
     const [section, setSection] = useState("ideas"); // "ideas" | "rag"
     const [ragTab, setRagTab] = useState("embed"); // "embed" | "search"
 
+    // --- Ideas / Agent A state ---
+    const [ideaType, setIdeaType] = useState("business"); // "business" | "product" | "other"
+    const [ideaSubject, setIdeaSubject] = useState(IDEA_TEMPLATES.business);
+    const [ideaCountry, setIdeaCountry] = useState("");
+    const [ideaBudget, setIdeaBudget] = useState("");
+    const [ideaLoading, setIdeaLoading] = useState(false);
+    const [ideaResponse, setIdeaResponse] = useState("");
+    const [ideaError, setIdeaError] = useState("");
+
+    // --- RAG state ---
     const [embedStatus, setEmbedStatus] = useState(null);
     const [embedLoading, setEmbedLoading] = useState(false);
     const [embedError, setEmbedError] = useState(null);
@@ -44,6 +81,80 @@
         setToast(null);
       }, 3000);
     }
+
+    // ----------------- IDEAS / AGENT A LOGIC -----------------
+
+    function handleIdeaTypeClick(type) {
+      setIdeaType(type);
+      setIdeaError("");
+      setIdeaResponse("");
+      setIdeaSubject(IDEA_TEMPLATES[type] || "");
+    }
+
+    async function handleIdeaSubmit(e) {
+      e.preventDefault();
+      setIdeaError("");
+      setIdeaResponse("");
+
+      const subject = (ideaSubject || "").trim();
+      const country = (ideaCountry || "").trim();
+      const budgetRaw = (ideaBudget || "").trim();
+
+      if (!subject) {
+        setIdeaError(
+          "Please fill in SUBJECT (COUNTRY and BUDGET are optional)."
+        );
+        return;
+      }
+
+      let parsedBudget = null;
+      if (budgetRaw === "") {
+        parsedBudget = null;
+      } else {
+        parsedBudget = Number(budgetRaw);
+        if (Number.isNaN(parsedBudget)) {
+          setIdeaError("Budget must be a valid number (or leave it empty).");
+          return;
+        }
+      }
+
+      setIdeaLoading(true);
+
+      try {
+        const res = await fetch(RAG_API_BASE + "/run", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            subject: subject,
+            country: country || "",
+            budget: parsedBudget,
+          }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(
+            "Agent A responded with status " +
+              res.status +
+              ": " +
+              text.slice(0, 200)
+          );
+        }
+
+        const data = await res.json();
+        setIdeaResponse(data.result ?? "");
+      } catch (err) {
+        console.error(err);
+        setIdeaError(err.message || "Unexpected error calling Agent A.");
+        showToast(err.message || "Unexpected error calling Agent A.", "error");
+      } finally {
+        setIdeaLoading(false);
+      }
+    }
+
+    // ----------------- RAG LOGIC -----------------
 
     async function runEmbedding() {
       setEmbedLoading(true);
@@ -184,29 +295,260 @@
         "&format=" +
         encodeURIComponent(format);
 
-      // Just open in a new tab; browser will download it
       window.open(url, "_blank");
     }
+
+    // ----------------- RENDER: IDEAS (Agent A UI) -----------------
 
     function renderIdeas() {
       return React.createElement(
         "div",
         { className: "main-content" },
-        React.createElement("h2", { className: "section-title" }, "Ideas"),
+        // Header
+        React.createElement(
+          "header",
+          { className: "ideas-header" },
+          React.createElement(
+            "div",
+            { className: "idea-badge" },
+            React.createElement("span", null, "🧠"),
+            React.createElement("span", null, "Agent A Orchestrator")
+          ),
+          React.createElement(
+            "h2",
+            { className: "section-title idea-title" },
+            "AI Agentic Explorer"
+          ),
+          React.createElement(
+            "p",
+            { className: "idea-subtitle" },
+            "SUBJECT is required. COUNTRY and BUDGET are optional. Agent A will derive axes of exploration, call downstream agents, and summarize the most promising ideas for you."
+          ),
+          // Idea type selector
+          React.createElement(
+            "div",
+            { className: "idea-type-row" },
+            React.createElement(
+              "button",
+              {
+                className:
+                  "idea-type-btn " +
+                  (ideaType === "business" ? "idea-type-btn-active" : ""),
+                type: "button",
+                onClick: function () {
+                  handleIdeaTypeClick("business");
+                },
+              },
+              "Business Ideas"
+            ),
+            React.createElement(
+              "button",
+              {
+                className:
+                  "idea-type-btn " +
+                  (ideaType === "product" ? "idea-type-btn-active" : ""),
+                type: "button",
+                onClick: function () {
+                  handleIdeaTypeClick("product");
+                },
+              },
+              "Product Ideas"
+            ),
+            React.createElement(
+              "button",
+              {
+                className:
+                  "idea-type-btn " +
+                  (ideaType === "other" ? "idea-type-btn-active" : ""),
+                type: "button",
+                onClick: function () {
+                  handleIdeaTypeClick("other");
+                },
+              },
+              "Other Ideas"
+            )
+          )
+        ),
+        // Form card
         React.createElement(
           "div",
           { className: "card" },
-          React.createElement("h3", null, "Choose idea type"),
           React.createElement(
-            "ul",
-            { className: "list" },
-            React.createElement("li", null, "Business Ideas"),
-            React.createElement("li", null, "Product Ideas"),
-            React.createElement("li", null, "Other Ideas")
+            "form",
+            {
+              onSubmit: function (e) {
+                handleIdeaSubmit(e);
+              },
+            },
+            React.createElement(
+              "div",
+              { className: "idea-form-grid" },
+              // SUBJECT
+              React.createElement(
+                "div",
+                null,
+                React.createElement(
+                  "div",
+                  { className: "field-label" },
+                  "Subject *"
+                ),
+                React.createElement("textarea", {
+                  className: "textarea",
+                  rows: 4,
+                  placeholder:
+                    "Describe the business / product / opportunity you want to explore…",
+                  value: ideaSubject,
+                  onChange: function (e) {
+                    setIdeaSubject(e.target.value);
+                  },
+                })
+              ),
+              // COUNTRY
+              React.createElement(
+                "div",
+                null,
+                React.createElement(
+                  "div",
+                  { className: "field-label" },
+                  "Country (optional)"
+                ),
+                React.createElement("input", {
+                  className: "input",
+                  placeholder: "e.g. Switzerland",
+                  value: ideaCountry,
+                  onChange: function (e) {
+                    setIdeaCountry(e.target.value);
+                  },
+                }),
+                React.createElement(
+                  "div",
+                  { className: "chip-row" },
+                  React.createElement("span", { className: "chip" }, "Context"),
+                  React.createElement(
+                    "span",
+                    { className: "chip" },
+                    "Regulation"
+                  ),
+                  React.createElement(
+                    "span",
+                    { className: "chip" },
+                    "Market maturity"
+                  )
+                )
+              ),
+              // BUDGET
+              React.createElement(
+                "div",
+                null,
+                React.createElement(
+                  "div",
+                  { className: "field-label" },
+                  "Budget (optional, USD)"
+                ),
+                React.createElement("input", {
+                  className: "input",
+                  type: "number",
+                  inputMode: "decimal",
+                  step: "any",
+                  placeholder: "Leave empty or type a number",
+                  value: ideaBudget,
+                  onChange: function (e) {
+                    setIdeaBudget(e.target.value);
+                  },
+                }),
+                React.createElement(
+                  "div",
+                  { className: "chip-row" },
+                  React.createElement(
+                    "span",
+                    { className: "chip" },
+                    "MVP ≤ 60 days"
+                  ),
+                  React.createElement(
+                    "span",
+                    { className: "chip" },
+                    "Limited capital"
+                  )
+                )
+              )
+            ),
+            React.createElement(
+              "div",
+              { className: "button-row" },
+              React.createElement(
+                "button",
+                {
+                  className: "button primary-btn",
+                  type: "submit",
+                  disabled: ideaLoading,
+                },
+                ideaLoading
+                  ? React.createElement(
+                      React.Fragment,
+                      null,
+                      React.createElement("span", null, "⏳"),
+                      React.createElement(
+                        "span",
+                        { style: { marginLeft: "0.4rem" } },
+                        "Generating Ideas..."
+                      )
+                    )
+                  : React.createElement(
+                      React.Fragment,
+                      null,
+                      React.createElement("span", null, "🚀"),
+                      React.createElement(
+                        "span",
+                        { style: { marginLeft: "0.4rem" } },
+                        "Generate Ideas"
+                      )
+                    )
+              )
+            ),
+            ideaError &&
+              React.createElement(
+                "div",
+                { className: "error-text", style: { marginTop: "0.5rem" } },
+                "⚠️ ",
+                ideaError
+              )
           )
+        ),
+        // Response card
+        React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement(
+            "div",
+            { className: "response-title" },
+            "Ideas Generated"
+          ),
+          ideaLoading &&
+            !ideaResponse &&
+            React.createElement(
+              "p",
+              { className: "response-body" },
+              "Agents are coordinating the calls..."
+            ),
+          !ideaLoading &&
+            !ideaResponse &&
+            !ideaError &&
+            React.createElement(
+              "p",
+              { className: "response-empty" },
+              "Results will appear here after you run Generate Ideas."
+            ),
+          ideaResponse &&
+            React.createElement(
+              "div",
+              { className: "response-body" },
+              ideaResponse
+            )
         )
       );
     }
+
+    // ----------------- RENDER: RAG -----------------
 
     function renderRagEmbed() {
       return React.createElement(
@@ -276,7 +618,6 @@
     }
 
     function renderRagSearch() {
-      // For edit button visibility: compare editor with latest version content
       const isDirty =
         selectedDoc && editContent !== (selectedDoc.content || "");
 
@@ -514,7 +855,6 @@
                   {
                     className: "secondary-btn",
                     onClick: function () {
-                      // Reset editor to current selectedDoc content
                       setEditContent(selectedDoc.content || "");
                     },
                     disabled: docLoading || !isDirty,
@@ -560,6 +900,8 @@
         ragTab === "embed" ? renderRagEmbed() : renderRagSearch()
       );
     }
+
+    // ----------------- MAIN APP SHELL -----------------
 
     return React.createElement(
       React.Fragment,
@@ -855,6 +1197,131 @@
   }
   .list {
     padding-left: 1.2rem;
+  }
+
+  /* Ideas / Agent A */
+  .ideas-header {
+    margin-bottom: 1rem;
+  }
+  .idea-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 999px;
+    background: #020617;
+    border: 1px solid #1f2937;
+    font-size: 0.8rem;
+    color: #e5e7eb;
+    margin-bottom: 0.6rem;
+  }
+  .idea-title {
+    margin-bottom: 0.25rem;
+  }
+  .idea-subtitle {
+    font-size: 0.9rem;
+    color: #9ca3af;
+    max-width: 720px;
+    margin-bottom: 0.8rem;
+  }
+  .idea-type-row {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.25rem;
+  }
+  .idea-type-btn {
+    border-radius: 999px;
+    border: 1px solid #1f2937;
+    background: #020617;
+    color: #9ca3af;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .idea-type-btn-active {
+    background: #0f172a;
+    color: #e5e7eb;
+    border-color: #38bdf8;
+  }
+  .idea-form-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.4fr);
+    gap: 1rem;
+  }
+  @media (max-width: 900px) {
+    .idea-form-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .field-label {
+    font-size: 0.85rem;
+    color: #e5e7eb;
+    margin-bottom: 0.25rem;
+  }
+  .textarea {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid #374151;
+    background: #020617;
+    color: #e5e7eb;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    resize: vertical;
+  }
+  .textarea:focus {
+    outline: none;
+    border-color: #0ea5e9;
+  }
+  .input {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid #374151;
+    background: #020617;
+    color: #e5e7eb;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.9rem;
+  }
+  .input:focus {
+    outline: none;
+    border-color: #0ea5e9;
+  }
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+  }
+  .chip {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #0f172a;
+    border: 1px solid #1f2937;
+    color: #9ca3af;
+  }
+  .button-row {
+    margin-top: 0.9rem;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .response-title {
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+  }
+  .response-body {
+    font-size: 0.9rem;
+    color: #e5e7eb;
+    white-space: pre-wrap;
+  }
+  .response-empty {
+    font-size: 0.85rem;
+    color: #6b7280;
   }
 
   /* Export toolbar */
