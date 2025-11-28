@@ -67,4 +67,4 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-RAG_API_BASE = os.environ.get("RAG_API_BASE", "http://localhost:8001")
+RAG_API_BASE = os.environ.get("RAG_API_BASE", "http://localhost:8009")

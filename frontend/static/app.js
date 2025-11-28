@@ -1,7 +1,7 @@
 (function () {
   const { useState } = React;
 
-  const RAG_API_BASE = window.RAG_API_BASE || "http://localhost:8001";
+  const RAG_API_BASE = window.RAG_API_BASE || "http://localhost:8009";
 
   // Small animated loading indicator with three dots
   function LoadingDots(props) {

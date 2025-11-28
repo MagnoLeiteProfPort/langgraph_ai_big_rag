@@ -111,7 +111,7 @@ Make sure `big_rag_project/.env` exists and is correctly configured.
 ### 3.2. Run the backend
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8009
 ```
 
 On startup, the backend will:
@@ -226,23 +226,23 @@ pip install -r requirements.txt
 You can configure where the Django UI expects the backend via env var:
 
 ```bash
-export RAG_API_BASE="http://localhost:8001"  # default
+export RAG_API_BASE="http://localhost:8009"  # default
 ```
 
 Or on Windows PowerShell:
 
 ```powershell
-$env:RAG_API_BASE="http://localhost:8001"
+$env:RAG_API_BASE="http://localhost:8009"
 ```
 
 ### 4.2. Run the frontend
 
 ```bash
 python manage.py migrate
-python manage.py runserver 0.0.0.0:8000
+python manage.py runserver 0.0.0.0:8010
 ```
 
-Open: <http://localhost:8000>
+Open: <http://localhost:8010>
 
 ### 4.3. UI overview
 
@@ -355,7 +355,7 @@ Implemented in `app/main.py`:
    python -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8009
    ```
 
 4. **Start the frontend**
@@ -366,12 +366,12 @@ Implemented in `app/main.py`:
    source .venv/bin/activate
    pip install -r requirements.txt
    python manage.py migrate
-   python manage.py runserver 0.0.0.0:8000
+   python manage.py runserver 0.0.0.0:8010
    ```
 
 5. **Use the UI**
 
-   - Visit <http://localhost:8000>
+   - Visit <http://localhost:8010>
    - Go to **RAG → Perform embeddings**
      - Click “Run embed delta”
      - Wait for counts to appear
